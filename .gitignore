@@ -184,6 +184,7 @@ ui_*.h
 
 # c++ compiled file
 ChatServer/chat_server
+ChatClientConsole/chat_client
 
 # OS / editor
 .DS_Store
