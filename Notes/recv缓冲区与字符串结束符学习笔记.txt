@@ -1,0 +1,187 @@
+问题 1：为什么需要 buffer[bytes_received] = '\0';？
+
+答案：
+
+需要写：
+
+buffer[bytes_received] = '\0';
+
+是因为我们想把 recv() 收到的字节当成 C 风格字符串来打印。
+
+recv() 接收的是网络字节流。它只负责把收到的字节放进 buffer，并返回收到的字节数。
+
+它不会自动在数据后面加字符串结束标记。
+
+例如客户端发来：
+
+hello
+
+服务端调用：
+
+int bytes_received = recv(client_fd, buffer.data(), buffer.size() - 1, 0);
+
+如果 recv() 返回 5，表示收到了 5 个字节。
+
+此时 buffer 前几个位置可能是：
+
+h e l l o
+
+但是后面没有自动加 '\0'。
+
+如果直接写：
+
+cout << buffer.data() << endl;
+
+cout 会把 buffer.data() 当成 C 风格字符串打印。C 风格字符串需要靠 '\0' 判断在哪里结束。
+
+如果没有 '\0'，cout 就不知道应该在哪里停止，可能会继续往后读，打印出奇怪内容。
+
+所以需要手动补上：
+
+buffer[bytes_received] = '\0';
+
+如果 bytes_received 是 5，就相当于：
+
+buffer[5] = '\0';
+
+此时 buffer 变成：
+
+h e l l o \0
+
+这样 cout 才能正确打印：
+
+hello
+
+总结：
+
+recv() 收到的是原始字节，不是字符串。
+如果要按字符串打印，就要手动在有效数据末尾加 '\0'。
+
+
+问题 2：cout << "message: " << buffer.data() << endl; 中，buffer.data() 不是会返回一个指针吗？为什么 cout 会打印 buffer 内容，而不是打印这个指针指向的地址？
+
+答案：
+
+buffer.data() 确实返回一个指针。
+
+对于：
+
+vector<char> buffer(1024);
+
+buffer.data() 的返回类型是：
+
+char*
+
+也就是指向 buffer 第一个元素的指针。
+
+但是 cout 对 char* 有特殊处理。
+
+当你写：
+
+cout << buffer.data() << endl;
+
+如果 buffer.data() 的类型是 char* 或 const char*，cout 会把它当成 C 风格字符串来打印。
+
+也就是说，cout 会：
+
+从这个 char* 指向的位置开始，一个字符一个字符往后打印，直到遇到 '\0' 为止。
+
+例如：
+
+char str[] = "hello";
+cout << str << endl;
+
+输出的是：
+
+hello
+
+而不是地址。
+
+原因是 C++ 标准库的 ostream 对 char* 提供了特殊的 operator<< 重载。
+
+它的含义是：
+
+把 char* 当成字符串打印。
+
+但是其他类型的指针通常会打印地址。
+
+例如：
+
+int x = 10;
+int* p = &x;
+cout << p << endl;
+
+这通常会输出类似：
+
+0x61ff08
+
+如果你真的想打印 char* 的地址，可以把它转换成 void*：
+
+cout << static_cast<void*>(buffer.data()) << endl;
+
+这样 cout 就会打印地址，而不是把它当字符串。
+
+总结：
+
+buffer.data() 返回 char*。
+cout 遇到 char* 时，会按 C 风格字符串打印。
+所以必须确保内容以 '\0' 结尾。
+
+
+问题 3：'\0' 对应的 char 是什么？
+
+答案：
+
+'\0' 是一个 char 类型的不可见字符，名字叫：
+
+空字符 / null character
+
+它的数值是：
+
+0
+
+也就是说：
+
+'\0' == 0
+
+注意，'\0' 不是字符 '0'。
+
+这两个完全不同：
+
+'\0'   空字符，数值是 0，不可见。
+'0'    数字字符 0，ASCII 数值是 48，可见。
+
+例如：
+
+char a = '\0';
+char b = '0';
+
+cout << (int)a << endl;  // 输出 0
+cout << (int)b << endl;  // 输出 48
+
+在 ASCII 表里：
+
+0    -> NUL，也就是 '\0'
+48   -> 字符 '0'
+65   -> 字符 'A'
+97   -> 字符 'a'
+
+'\0' 的主要作用是：
+
+标记 C 风格字符串的结束。
+
+例如：
+
+char str[6] = {'h', 'e', 'l', 'l', 'o', '\0'};
+
+内存里是：
+
+h e l l o \0
+
+打印时只会显示：
+
+hello
+
+总结：
+
+'\0' 是数值为 0 的 char，用来表示 C 风格字符串的结束位置。

@@ -1,0 +1,159 @@
+问题 1：server_fd 不也是 int 吗，close() 为什么会正确执行？
+
+答案：
+
+server_fd 表面上是 int，但它不是普通数字的意义。它是操作系统资源的编号。
+
+例如：
+
+int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+
+socket() 做了两件事：
+
+1. 在操作系统内核里创建一个 socket 资源。
+2. 返回一个整数编号给程序。
+
+这个整数编号叫文件描述符，英文是 file descriptor，简称 fd。
+
+比如系统可能返回：
+
+server_fd == 3
+
+这不是说数字 3 本身很特殊，而是说：
+
+在当前这个进程里，编号 3 对应一个 socket 资源。
+
+操作系统内部大概有一张表：
+
+0 -> 标准输入 stdin
+1 -> 标准输出 stdout
+2 -> 标准错误 stderr
+3 -> 你刚创建的 socket
+
+所以：
+
+close(server_fd);
+
+如果 server_fd 是 3，就等价于：
+
+close(3);
+
+它的意思是：
+
+请关闭当前进程文件描述符表里编号为 3 的那个资源。
+
+所以 close() 不是在释放 int 变量，而是在释放这个 int 编号背后对应的操作系统资源。
+
+这也是为什么不能乱写：
+
+close(ret);
+
+如果 ret 是 0，就会变成 close(0)，这可能会关闭标准输入。
+如果 ret 是 1，就会变成 close(1)，这可能会关闭标准输出。
+
+关键区别：
+
+server_fd 是 socket() 返回的资源编号。
+ret 是 bind() 返回的状态码。
+
+虽然它们都是 int，但含义完全不同。
+
+可以记住这个规则：
+
+socket() / accept() / open() 返回的 int 通常是资源编号，需要 close()。
+bind() / listen() / connect() 这类函数返回的 int 通常是状态码，不需要 close()。
+
+
+问题 2：什么是文件描述符？
+
+答案：
+
+文件描述符，英文叫 file descriptor，简称 fd。
+
+它是 Linux / Unix 系统里用来表示“已打开资源”的一个整数编号。
+
+重点：
+
+文件描述符不是资源本身，而是访问资源的编号。
+
+比如：
+
+int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+
+操作系统会在内核里创建一个 socket，然后返回一个数字，比如 3。
+
+于是：
+
+server_fd == 3
+
+这个 3 就是文件描述符。
+
+它的意思是：
+
+在当前进程里，编号 3 对应一个 socket。
+
+Linux 里每个进程都有一张文件描述符表，大概像这样：
+
+0 -> 标准输入 stdin
+1 -> 标准输出 stdout
+2 -> 标准错误 stderr
+3 -> socket
+4 -> 打开的文件
+5 -> 另一个客户端连接
+
+所以调用：
+
+close(server_fd);
+
+如果 server_fd 是 3，就等价于：
+
+close(3);
+
+意思是：
+
+关闭当前进程里编号 3 对应的资源。
+
+为什么叫“文件”描述符？
+
+因为 Linux 里有一个重要思想：
+
+一切皆文件。
+
+很多东西都可以像文件一样读写：
+
+普通文件
+键盘输入
+终端输出
+网络 socket
+管道
+设备
+
+所以它们都可以通过类似的方式操作：
+
+read(fd, ...)
+write(fd, ...)
+close(fd)
+
+在网络编程里常见的是：
+
+recv(fd, ...)
+send(fd, ...)
+close(fd)
+
+需要记住的区别：
+
+int server_fd = socket(...);
+
+server_fd 是文件描述符，需要 close()。
+
+int client_fd = accept(...);
+
+client_fd 也是文件描述符，需要 close()。
+
+int ret = bind(...);
+
+ret 只是返回状态，不是文件描述符，不要 close(ret)。
+
+一句话总结：
+
+文件描述符就是操作系统给程序的一张“资源编号牌”，程序拿着这个编号去读、写、关闭对应的资源。
