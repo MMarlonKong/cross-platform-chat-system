@@ -56,55 +56,65 @@ int main() {
 
 	cout << "server listening on port " << PORT << endl;
 
-	//client_addr 用来保存连接进来的客户端 IP 和端口
-	//client_len 表示 client_addr 这个结构体的大小
-	sockaddr_in client_addr;
-	socklen_t client_len = sizeof(client_addr);
+	
 
 	//server_fd 继续负责监听新的客户端
 	//client_fd 负责和这一个客户端聊天
-	int client_fd = accept(server_fd, (sockaddr*)&client_addr, &client_len);
+	//循环接受多个客户端
 
-	if (client_fd == -1) {
-		cout << "accept error" << endl;
-		close(server_fd);
-		return 1;
-	}
-
-	cout << "client connected" << endl;
-	//打印客户端 IP
-	cout << "client ip: " << inet_ntoa(client_addr.sin_addr) << endl;
-
-	//准备缓冲区
-	//不用vector的写法
-	//char buffer[1024];
-	//memset(buffer, 0, sizeof(buffer));
-
-	vector<char> buffer(1024);
-
-	//recv(): 客户端连接后，服务器接收客户端发来的一句话并打印出来
-	//这里 sizeof(buffer) - 1 是为了给字符串结尾的 '\0' 留一个位置。
-	//循环接收消息
+	// ---------------------------------------------------------------------
+	//当前服务端是阻塞式单客户端处理模型。
+	//当服务端进入某个客户端的 recv() 后，无法继续 accept 或处理其他客户端。
+	//因此多个客户端同时连接时，后连接的客户端必须等待前一个客户端断开。
+	//这就是后续引入 select 的原因。
+	// ---------------------------------------------------------------------
 	while (1) {
-		int bytes_received = recv(client_fd, buffer.data(), buffer.size() - 1, 0);
+		//client_addr 用来保存连接进来的客户端 IP 和端口
+		//client_len 表示 client_addr 这个结构体的大小
+		sockaddr_in client_addr;
+		socklen_t client_len = sizeof(client_addr);
+		int client_fd = accept(server_fd, (sockaddr*)&client_addr, &client_len);
 
-		//详情见：notes/recv缓冲区与字符串结束符学习笔记.txt
-		if (bytes_received > 0) {
-			buffer[bytes_received] = '\0';
-			cout << "message: " << buffer.data() << endl;
+		if (client_fd == -1) {
+			cout << "accept error" << endl;
+			continue;
 		}
-		else if (bytes_received == 0) {
-			//TCP 空消息与 recv 返回值短笔记.txt
-			cout << "client disconnected" << endl;
-			break;
+
+		cout << "client connected" << endl;
+		//打印客户端 IP
+		cout << "client ip: " << inet_ntoa(client_addr.sin_addr) << endl;
+
+		//准备缓冲区
+		//不用vector的写法
+		//char buffer[1024];
+		//memset(buffer, 0, sizeof(buffer));
+
+		vector<char> buffer(1024);
+
+		//recv(): 客户端连接后，服务器接收客户端发来的一句话并打印出来
+		//这里 sizeof(buffer) - 1 是为了给字符串结尾的 '\0' 留一个位置。
+		//循环接收消息
+		while (1) {
+			int bytes_received = recv(client_fd, buffer.data(), buffer.size() - 1, 0);
+
+			//详情见：notes/recv缓冲区与字符串结束符学习笔记.txt
+			if (bytes_received > 0) {
+				buffer[bytes_received] = '\0';
+				cout << "message: " << buffer.data() << endl;
+			}
+			else if (bytes_received == 0) {
+				//TCP 空消息与 recv 返回值短笔记.txt
+				cout << "client disconnected" << endl;
+				break;
+			}
+			else {
+				cout << "receive message failed" << endl;
+				break;
+			}
 		}
-		else {
-			cout << "receive message failed" << endl;
-			break;
-		}
+		close(client_fd);
 	}
-
-	close(client_fd);
+	
 	close(server_fd);
 	
 	return 0;
