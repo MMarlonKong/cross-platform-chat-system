@@ -84,24 +84,28 @@ int main() {
 
 	//recv(): 客户端连接后，服务器接收客户端发来的一句话并打印出来
 	//这里 sizeof(buffer) - 1 是为了给字符串结尾的 '\0' 留一个位置。
-	int bytes_received = recv(client_fd, buffer.data(), buffer.size() - 1, 0);
+	//循环接收消息
+	while (1) {
+		int bytes_received = recv(client_fd, buffer.data(), buffer.size() - 1, 0);
 
-	//详情见：notes/recv缓冲区与字符串结束符学习笔记.txt
-	if (bytes_received > 0) {
-		buffer[bytes_received] = '\0';
-		cout << "message: " << buffer.data() << endl;
+		//详情见：notes/recv缓冲区与字符串结束符学习笔记.txt
+		if (bytes_received > 0) {
+			buffer[bytes_received] = '\0';
+			cout << "message: " << buffer.data() << endl;
+		}
+		else if (bytes_received == 0) {
+			//TCP 空消息与 recv 返回值短笔记.txt
+			cout << "client disconnected" << endl;
+			break;
+		}
+		else {
+			cout << "receive message failed" << endl;
+			break;
+		}
 	}
-	else if (bytes_received == 0) {
-		//TCP 空消息与 recv 返回值短笔记.txt
-		cout << "client disconnected" << endl;
-	}
-	else {
-		cout << "receive message failed" << endl;
-		close(server_fd);
-		close(client_fd);
-		return 1;
-	}
-	close(server_fd);
+
 	close(client_fd);
+	close(server_fd);
+	
 	return 0;
 }

@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <string>
 using namespace std;
 int main()
 {
@@ -44,18 +45,39 @@ int main()
 
     cout << "connected to server" << endl;
 
+
+    
     //<5>: send 发送消息
-    const char* message = "hello world";
-    send(client_fd, message, strlen(message), 0);
-    int bytes_sent = send(client_fd, message, strlen(message), 0);
-    if (bytes_sent == -1) {
-        cout << "send message failed" << endl;
-        close(client_fd);
-        return 1;
+    string message;
+    while (1) {
+        cout << "输入消息" << endl;
+        //聊天消息经常包含空格，而：
+        //cin >> message;
+        //只会读取到第一个空白字符为止.例如发送"Hello world",message 只会得到：hello 
+        getline(cin, message);
+
+        if (message == "quit") {
+            cout << "退出发送消息" << endl;
+            break;
+        }
+
+        if (message.empty()) {
+            cout << "请输入至少一个字符文本" << endl;
+            continue;
+        }
+
+        int bytes_sent = send(client_fd, message.c_str(), message.length(), 0);
+        if (bytes_sent == -1) {
+            cout << "send message failed" << endl;
+            close(client_fd);
+            return 1;
+        }
+        else {
+            cout << "sent message: " << message << endl;
+        }
+        
     }
-    else {
-        cout << "sent message: " << message << endl;
-    }
+
 
     close(client_fd);
     return 0;
