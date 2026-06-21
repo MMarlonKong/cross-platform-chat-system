@@ -45,7 +45,6 @@ int main()
 
     cout << "connected to server" << endl;
 
-
     
     //<5>: send 发送消息
     string message;
