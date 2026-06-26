@@ -1,0 +1,67 @@
+问题：为什么 select 设计成检查 0 到 max_fd 之间的 fd，而不直接检查 read_fds 里的所有 fd？
+
+答案：
+
+select() 确实只关心 read_fds 里被设置的 fd。
+
+但是 fd_set 本身通常不是 vector / set 这种高级容器，而更像一个位图 bitmap。
+
+可以想象成：
+
+fd:   0 1 2 3 4 5 6 7 8
+bit:  0 0 0 1 1 0 0 0 1
+
+如果执行：
+
+FD_SET(3, &read_fds);
+FD_SET(4, &read_fds);
+FD_SET(8, &read_fds);
+
+那 read_fds 里就是第 3、4、8 位被设置为 1。
+
+问题是：
+
+fd_set 自己没有记录“当前最大的有效 fd 是多少”。
+
+所以 select() 需要调用者额外传入：
+
+max_fd + 1
+
+例如：
+
+server_fd = 3
+client_fd = 8
+
+那么最大 fd 是 8，调用时写：
+
+select(8 + 1, &read_fds, nullptr, nullptr, nullptr);
+
+也就是：
+
+select(9, &read_fds, nullptr, nullptr, nullptr);
+
+含义是：
+
+请 select 检查 fd 0 到 fd 8。
+
+在这个范围里，真正被关注的是 read_fds 中 bit 为 1 的那些 fd，比如 3 和 8。
+其他 bit 是 0 的 fd 会被跳过。
+
+为什么不直接传一个 fd 数组？
+
+因为 select 是早期 Unix / POSIX API，设计比较原始：
+
+fd_set 位图 + nfds 扫描范围
+
+后来的 poll 更接近“传 fd 数组”：
+
+struct pollfd fds[];
+
+再后来的 epoll 更进一步：
+
+由内核维护你关心的 fd 集合。
+
+一句话总结：
+
+select 不是不知道 read_fds，而是 fd_set 只是一组位，没有记录最大 fd。
+所以必须用 max_fd + 1 告诉 select 扫描范围。

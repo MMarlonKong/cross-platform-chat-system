@@ -1,9 +1,11 @@
 #include <iostream>
-#include <cstring>
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <sys/select.h>
 #include <string>
+#include <vector>
+#include <cstring>
 using namespace std;
 int main()
 {
@@ -48,33 +50,65 @@ int main()
     
     //<5>: send 发送消息
     string message;
-    while (1) {
-        cout << "输入消息" << endl;
-        //聊天消息经常包含空格，而：
-        //cin >> message;
-        //只会读取到第一个空白字符为止.例如发送"Hello world",message 只会得到：hello 
-        getline(cin, message);
+    vector<char> buffer(1024);
 
-        if (message == "quit") {
-            cout << "退出发送消息" << endl;
+    while (true) {
+        fd_set read_fds;
+        FD_ZERO(&read_fds);
+
+        FD_SET(STDIN_FILENO, &read_fds);
+        FD_SET(client_fd, &read_fds);
+
+        int max_fd = client_fd;
+
+        int ret = select(max_fd + 1, &read_fds, nullptr, nullptr, nullptr);
+
+        if (ret == -1) {
+            cout << "select error" << endl;
             break;
         }
 
-        if (message.empty()) {
-            cout << "请输入至少一个字符文本" << endl;
-            continue;
-        }
+        // 1. 键盘有输入：读取用户输入并 send
+        if (FD_ISSET(STDIN_FILENO, &read_fds)) {
+            getline(cin, message);
 
-        int bytes_sent = send(client_fd, message.c_str(), message.length(), 0);
-        if (bytes_sent == -1) {
-            cout << "send message failed" << endl;
-            close(client_fd);
-            return 1;
-        }
-        else {
+            if (message == "quit") {
+                cout << "退出发送消息" << endl;
+                break;
+            }
+
+            if (message.empty()) {
+                cout << "请输入至少一个字符文本" << endl;
+                continue;
+            }
+
+            int bytes_sent = send(client_fd, message.c_str(), message.length(), 0);
+
+            if (bytes_sent == -1) {
+                cout << "send message failed" << endl;
+                break;
+            }
+
             cout << "sent message: " << message << endl;
         }
-        
+
+        // 2. 服务器 socket 有数据：接收广播消息
+        if (FD_ISSET(client_fd, &read_fds)) {
+            int bytes_received = recv(client_fd, buffer.data(), buffer.size() - 1, 0);
+
+            if (bytes_received > 0) {
+                buffer[bytes_received] = '\0';
+                cout << "received message: " << buffer.data() << endl;
+            }
+            else if (bytes_received == 0) {
+                cout << "server disconnected" << endl;
+                break;
+            }
+            else {
+                cout << "receive message failed" << endl;
+                break;
+            }
+        }
     }
 
 
