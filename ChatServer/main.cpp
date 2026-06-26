@@ -150,20 +150,63 @@ int main() {
                 int bytes_received = recv(client_fd, buffer.data(), buffer.size() - 1, 0);
 
                 if (bytes_received > 0) {
+                    //自定义协议类型：
+                    //如果 text 以 "login|" 开头：
+                    //    提取昵称
+                    //    保存 nicknames[client_fd]
+                    //    广播 joined
+
+                    //    否则如果 text 以 "chat|" 开头：
+                    //    提取聊天内容
+                    //    如果还没登录：拒绝或忽略
+                    //    否则广播 nickname : content
+
+                    //    否则：
+                    //    非法消息，忽略
                     buffer[bytes_received] = '\0';
                     string text = buffer.data();
 
                     string broadcast_msg;
 
-                    if (nicknames.find(client_fd) == nicknames.end()) {
-                        nicknames[client_fd] = text;
-                        broadcast_msg = text + " joined the chat";
+                    //text.rfind("login|", 0) == 0 表示：
+                    //    text 是否以 login | 开头
+                    if (text.rfind("login|", 0) == 0) {
+                        string nickname = text.substr(6);
+
+                        if (nickname.empty()) {
+                            cout << "empty nickname ignored" << endl;
+                            ++it;
+                            continue;
+                        }
+
+                        nicknames[client_fd] = nickname;
+                        broadcast_msg = nickname + " joined the chat";
+                        cout << broadcast_msg << endl;
+                    }
+                    else if (text.rfind("chat|", 0) == 0) {
+                        string content = text.substr(5);
+
+                        if (nicknames.find(client_fd) == nicknames.end()) {
+                            cout << "chat message from unauthenticated client ignored" << endl;
+                            ++it;
+                            continue;
+                        }
+
+                        if (content.empty()) {
+                            cout << "empty chat message ignored" << endl;
+                            ++it;
+                            continue;
+                        }
+
+                        broadcast_msg = nicknames[client_fd] + ": " + content;
                         cout << broadcast_msg << endl;
                     }
                     else {
-                        broadcast_msg = nicknames[client_fd] + ": " + text;
-                        cout << broadcast_msg << endl;
+                        cout << "invalid message ignored: " << text << endl;
+                        ++it;
+                        continue;
                     }
+
                     //某个客户端 client_fd 发来了一条消息
                     //    服务端 recv() 收到了这条消息
                     //    现在要把这条消息转发给其他在线客户端

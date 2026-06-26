@@ -63,7 +63,9 @@ int main()
     }
 
     //把昵称发送给服务端
-    int bytes_sent = send(client_fd, nickname.c_str(), nickname.size(), 0);
+    string login_msg = "login|" + nickname;
+
+int bytes_sent = send(client_fd, login_msg.c_str(), login_msg.size(), 0);
 
     if (bytes_sent == -1) {
         cout << "send nickname failed" << endl;
@@ -107,7 +109,9 @@ int main()
                 continue;
             }
 
-            int bytes_sent = send(client_fd, message.c_str(), message.length(), 0);
+            string chat_msg = "chat|" + message;
+
+            int bytes_sent = send(client_fd, chat_msg.c_str(), chat_msg.size(), 0);
 
             if (bytes_sent == -1) {
                 cout << "send message failed" << endl;
