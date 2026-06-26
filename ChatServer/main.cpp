@@ -2,24 +2,128 @@
 #include <cstring>
 #include <vector>
 #include <unistd.h>      // close()
-#include <arpa/inet.h>   // htons(), inet_ntoa()
+#include <arpa/inet.h>   // htons(), inet_ntoa(), htonl(), ntohl()
 #include <sys/socket.h>  // socket(), bind(), listen(), accept(), recv(), send()
 #include <sys/select.h>  // select(), fd_set, FD_SET, FD_ISSET
 #include <map>
 #include <string>
+#include <cstdint>
 
 using namespace std;
+
+// recvAll() 用来解决 TCP 半包问题。
+// recv() 不保证一次就能读满指定长度，所以这里循环读取，直到收满 length 字节。
+// 如果中途连接断开或接收失败，返回 false。
+bool recvAll(int fd, char* buffer, size_t length)
+{
+    size_t total_received = 0;
+
+    while (total_received < length) {
+        int bytes_received = recv(
+            fd,
+            buffer + total_received,
+            length - total_received,
+            0
+        );
+
+        if (bytes_received <= 0) {
+            return false;
+        }
+
+        total_received += bytes_received;
+    }
+
+    return true;
+}
+
+// recvMessage() 按照当前协议接收一条完整消息：
+// [4字节长度][消息正文]
+// 先读取 4 字节长度，再根据长度读取完整正文。
+bool recvMessage(int fd, string& message)
+{
+    uint32_t network_length = 0;
+
+    // 读取 4 字节消息长度。
+    if (!recvAll(fd, reinterpret_cast<char*>(&network_length), sizeof(network_length))) {
+        return false;
+    }
+
+    // 网络字节序转主机字节序。
+    uint32_t length = ntohl(network_length);
+
+    // 简单防御：拒绝空消息和过大的消息。
+    if (length == 0 || length > 4096) {
+        return false;
+    }
+
+    vector<char> buffer(length);
+
+    // 根据长度读取完整消息正文。
+    if (!recvAll(fd, buffer.data(), length)) {
+        return false;
+    }
+
+    message.assign(buffer.begin(), buffer.end());
+
+    return true;
+}
+bool sendAll(int fd, const char* data, size_t length) {
+    size_t total_sent = 0;
+
+    while (total_sent < length) {
+        int bytes_sent = send(
+            fd,
+            data + total_sent,
+            length - total_sent,
+            0
+        );
+
+        if (bytes_sent <= 0) {
+            return false;
+        }
+
+        total_sent += bytes_sent;
+    }
+
+    return true;
+}
+
+bool sendMessage(int fd, const string& message) {
+    uint32_t length = message.size();
+    uint32_t network_length = htonl(length);
+
+    if (!sendAll(fd, reinterpret_cast<const char*>(&network_length), sizeof(network_length))) {
+        return false;
+    }
+
+    if (!sendAll(fd, message.c_str(), message.size())) {
+        return false;
+    }
+
+    return true;
+}
+
+
 
 int main() {
     const int PORT = 8888;
 
-    // 创建 TCP socket：
-    // AF_INET 使用 IPv4，SOCK_STREAM 表示面向连接的字节流 socket，通常对应 TCP。
+    // 创建 TCP 监听 socket。
+    // AF_INET 使用 IPv4。
+    // SOCK_STREAM 表示面向连接的字节流 socket，通常对应 TCP。
     // 第三个参数 0 表示使用默认协议。
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
 
     if (server_fd == -1) {
         cout << "create server error" << endl;
+        return 1;
+    }
+
+    // 允许服务端重启后快速复用同一个端口，避免频繁出现 bind error。
+    int opt = 1;
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) == -1) {
+        cout << "setsockopt error" << endl;
+        close(server_fd);
         return 1;
     }
 
@@ -55,19 +159,16 @@ int main() {
     // 保存所有已连接客户端的 socket。
     vector<int> clients;
 
-    // 保存客户端昵称
+    // 保存客户端昵称：client_fd -> nickname。
     map<int, string> nicknames;
-
-    // 接收缓冲区：最多读取 1023 字节，最后留 1 字节放 '\0'。
-    vector<char> buffer(1024);
 
     // select 模型：
     // 同时监听 server_fd 和所有 client_fd。
     // server_fd 可读：有新客户端连接，可以 accept()。
-    // client_fd 可读：已有客户端发来消息或断开连接，可以 recv()。
+    // client_fd 可读：已有客户端发来消息或断开连接，可以 recvMessage()。
     while (true) {
         // fd_set 是 select 使用的文件描述符集合。
-        // read_fds 用来保存本轮要监听“可读事件”的 fd。
+        // read_fds 保存本轮要监听“可读事件”的 fd。
         fd_set read_fds;
 
         // 每轮 select 前都要清空集合，再重新加入要监听的 fd。
@@ -124,52 +225,19 @@ int main() {
         }
 
         // 处理已有客户端消息。
-        // 哪个 client_fd 可读，就对哪个客户端 recv()。
-
-        // 广播消息代码逻辑：
-        //   如果这个 client_fd 还没有昵称：
-        //    当前收到的内容就是昵称
-        //    保存起来
-        //    广播 “xxx joined”
-        //    否则：
-        //    当前收到的内容就是聊天消息
-        //    广播 “nickname : message”
+        // 哪个 client_fd 可读，就对哪个客户端 recvMessage()。
         for (auto it = clients.begin(); it != clients.end(); ) {
             int client_fd = *it;
 
             if (FD_ISSET(client_fd, &read_fds)) {
-                //思路：
-                //先把 buffer 转成 string text
-                //如果 nicknames 里还没有 client_fd：
-                //    nicknames[client_fd] = text
-                //    拼接 joined 消息
-                //    广播给其他客户端
-                //    否则：
-                //    拼接 nickname : text
-                //    广播给其他客户端
-                int bytes_received = recv(client_fd, buffer.data(), buffer.size() - 1, 0);
+                string text;
 
-                if (bytes_received > 0) {
-                    //自定义协议类型：
-                    //如果 text 以 "login|" 开头：
-                    //    提取昵称
-                    //    保存 nicknames[client_fd]
-                    //    广播 joined
-
-                    //    否则如果 text 以 "chat|" 开头：
-                    //    提取聊天内容
-                    //    如果还没登录：拒绝或忽略
-                    //    否则广播 nickname : content
-
-                    //    否则：
-                    //    非法消息，忽略
-                    buffer[bytes_received] = '\0';
-                    string text = buffer.data();
-
+                if (recvMessage(client_fd, text)) {
                     string broadcast_msg;
 
-                    //text.rfind("login|", 0) == 0 表示：
-                    //    text 是否以 login | 开头
+                    // 协议格式：
+                    // login|nickname 表示登录消息。
+                    // chat|message 表示聊天消息。
                     if (text.rfind("login|", 0) == 0) {
                         string nickname = text.substr(6);
 
@@ -207,23 +275,18 @@ int main() {
                         continue;
                     }
 
-                    //某个客户端 client_fd 发来了一条消息
-                    //    服务端 recv() 收到了这条消息
-                    //    现在要把这条消息转发给其他在线客户端
-                    //遍历 clients
-                    //如果 other_fd != 当前发送者 client_fd
-                    //    send(other_fd, buffer.data(), bytes_received, 0)
+                    // 群聊广播：使用 sendMessage() 转发给除发送者以外的所有在线客户端。
                     for (int other_fd : clients) {
                         if (other_fd != client_fd) {
-                            send(other_fd, broadcast_msg.c_str(), broadcast_msg.size(), 0);
+                            sendMessage(other_fd, broadcast_msg);
                         }
                     }
 
                     ++it;
                 }
-                // 客户端断开时清理昵称
-                else if (bytes_received == 0) {
-                    // recv() 返回 0 表示客户端正常断开连接。
+                else {
+                    // recvMessage() 返回 false：
+                    // 可能是客户端断开，也可能是消息长度非法或接收失败。
                     if (nicknames.find(client_fd) != nicknames.end()) {
                         string leave_msg = nicknames[client_fd] + " left the chat";
                         cout << leave_msg << endl;
@@ -231,30 +294,12 @@ int main() {
 
                         for (int other_fd : clients) {
                             if (other_fd != client_fd) {
-                                send(other_fd, leave_msg.c_str(), leave_msg.size(), 0);
+                                sendMessage(other_fd, leave_msg);
                             }
                         }
                     }
-
-                    close(client_fd);
-                    it = clients.erase(it);
-
-                    cout << "online clients: " << clients.size() << endl;
-                }
-                else {
-                    // recv() 返回负数表示接收失败。
-                    cout << "receive message failed" << endl;
-
-                    if (nicknames.find(client_fd) != nicknames.end()) {
-                        string leave_msg = nicknames[client_fd] + " left the chat";
-                        cout << leave_msg << endl;
-                        nicknames.erase(client_fd);
-
-                        for (int other_fd : clients) {
-                            if (other_fd != client_fd) {
-                                send(other_fd, leave_msg.c_str(), leave_msg.size(), 0);
-                            }
-                        }
+                    else {
+                        cout << "client disconnected before login" << endl;
                     }
 
                     close(client_fd);

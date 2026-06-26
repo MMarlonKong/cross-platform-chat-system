@@ -6,8 +6,96 @@
 #include <string>
 #include <vector>
 #include <cstring>
-#include <map>
+#include <cstdint>
 using namespace std;
+
+// 处理TCP粘包/半包
+//发送：[4字节长度][login | ... / chat | ...]
+//接收：[4字节长度][服务端广播文本]
+bool sendAll(int fd, const char* data, size_t length) {
+    size_t total_sent = 0;
+
+    while (total_sent < length) {
+        int bytes_sent = send(
+            fd,
+            data + total_sent,
+            length - total_sent,
+            0
+        );
+
+        if (bytes_sent <= 0) {
+            return false;
+        }
+
+        total_sent += bytes_sent;
+    }
+
+    return true;
+}
+bool sendMessage(int fd, const string& message) {
+    uint32_t length = message.size();
+    uint32_t network_length = htonl(length);
+
+    if (!sendAll(fd, reinterpret_cast<const char*>(&network_length), sizeof(network_length))) {
+        return false;
+    }
+
+    if (!sendAll(fd, message.c_str(), message.size())) {
+        return false;
+    }
+
+    return true;
+}
+
+
+
+bool recvAll(int fd, char* buffer, size_t length)
+{
+    size_t total_received = 0;
+
+    while (total_received < length) {
+        int bytes_received = recv(
+            fd,
+            buffer + total_received,
+            length - total_received,
+            0
+        );
+
+        if (bytes_received <= 0) {
+            return false;
+        }
+
+        total_received += bytes_received;
+    }
+
+    return true;
+}
+
+bool recvMessage(int fd, string& message)
+{
+    uint32_t network_length = 0;
+
+    if (!recvAll(fd, reinterpret_cast<char*>(&network_length), sizeof(network_length))) {
+        return false;
+    }
+
+    uint32_t length = ntohl(network_length);
+
+    if (length == 0 || length > 4096) {
+        return false;
+    }
+
+    vector<char> buffer(length);
+
+    if (!recvAll(fd, buffer.data(), length)) {
+        return false;
+    }
+
+    message.assign(buffer.begin(), buffer.end());
+
+    return true;
+}
+
 int main()
 {
     // <1>: 准备ip地址和端口，"127.0.0.1"表示本机
@@ -65,9 +153,7 @@ int main()
     //把昵称发送给服务端
     string login_msg = "login|" + nickname;
 
-int bytes_sent = send(client_fd, login_msg.c_str(), login_msg.size(), 0);
-
-    if (bytes_sent == -1) {
+    if (!sendMessage(client_fd, login_msg)) {
         cout << "send nickname failed" << endl;
         close(client_fd);
         return 1;
@@ -75,9 +161,7 @@ int bytes_sent = send(client_fd, login_msg.c_str(), login_msg.size(), 0);
     
     //<5>: send 发送消息
     string message;
-    vector<char> buffer(1024);
-
-    map<int, string> nicknames;
+    
 
     while (true) {
         fd_set read_fds;
@@ -111,9 +195,7 @@ int bytes_sent = send(client_fd, login_msg.c_str(), login_msg.size(), 0);
 
             string chat_msg = "chat|" + message;
 
-            int bytes_sent = send(client_fd, chat_msg.c_str(), chat_msg.size(), 0);
-
-            if (bytes_sent == -1) {
+            if (!sendMessage(client_fd, chat_msg)) {
                 cout << "send message failed" << endl;
                 break;
             }
@@ -123,18 +205,13 @@ int bytes_sent = send(client_fd, login_msg.c_str(), login_msg.size(), 0);
 
         // 2. 服务器 socket 有数据：接收广播消息
         if (FD_ISSET(client_fd, &read_fds)) {
-            int bytes_received = recv(client_fd, buffer.data(), buffer.size() - 1, 0);
+            string received_msg;
 
-            if (bytes_received > 0) {
-                buffer[bytes_received] = '\0';
-                cout << "received message: " << buffer.data() << endl;
-            }
-            else if (bytes_received == 0) {
-                cout << "server disconnected" << endl;
-                break;
+            if (recvMessage(client_fd, received_msg)) {
+                cout << "received message: " << received_msg << endl;
             }
             else {
-                cout << "receive message failed" << endl;
+                cout << "server disconnected or receive message failed" << endl;
                 break;
             }
         }
