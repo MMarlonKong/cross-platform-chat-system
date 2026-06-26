@@ -97,6 +97,7 @@ int main() {
 			break;
 		}
 
+		// Accept:
 		// FD_ISSET(server_fd, &read_fds)表示: select 返回后，检查 server_fd 是否在“有事件”的集合里
 		if (FD_ISSET(server_fd, &read_fds)) {
 			sockaddr_in client_addr;
@@ -116,7 +117,35 @@ int main() {
 			}
 		}
 
+		//Recv:
+		for (auto it = clients.begin(); it != clients.end(); ) {
+			int client_fd = *it;
 
+			if (FD_ISSET(client_fd, &read_fds)) {
+				int bytes_received = recv(client_fd, buffer.data(), buffer.size() - 1, 0);
+
+				if (bytes_received > 0) {
+					buffer[bytes_received] = '\0';
+					cout << "message: " << buffer.data() << endl;
+					++it;
+				}
+				else if (bytes_received == 0) {
+					cout << "client disconnected" << endl;
+					close(client_fd);
+					it = clients.erase(it);
+					cout << "online clients: " << clients.size() << endl;
+				}
+				else {
+					cout << "receive message failed" << endl;
+					close(client_fd);
+					it = clients.erase(it);
+					cout << "online clients: " << clients.size() << endl;
+				}
+			}
+			else {
+				++it;
+			}
+		}
 	}
 	
 	close(server_fd);
