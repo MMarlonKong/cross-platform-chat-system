@@ -5,6 +5,8 @@
 #include <arpa/inet.h>   // htons(), inet_ntoa()
 #include <sys/socket.h>  // socket(), bind(), listen(), accept(), recv(), send()
 #include <sys/select.h>  // select(), fd_set, FD_SET, FD_ISSET
+#include <map>
+#include <string>
 
 using namespace std;
 
@@ -52,6 +54,9 @@ int main() {
 
     // 保存所有已连接客户端的 socket。
     vector<int> clients;
+
+    // 保存客户端昵称
+    map<int, string> nicknames;
 
     // 接收缓冲区：最多读取 1023 字节，最后留 1 字节放 '\0'。
     vector<char> buffer(1024);
@@ -120,17 +125,45 @@ int main() {
 
         // 处理已有客户端消息。
         // 哪个 client_fd 可读，就对哪个客户端 recv()。
+
+        // 广播消息代码逻辑：
+        //   如果这个 client_fd 还没有昵称：
+        //    当前收到的内容就是昵称
+        //    保存起来
+        //    广播 “xxx joined”
+        //    否则：
+        //    当前收到的内容就是聊天消息
+        //    广播 “nickname : message”
         for (auto it = clients.begin(); it != clients.end(); ) {
             int client_fd = *it;
 
             if (FD_ISSET(client_fd, &read_fds)) {
+                //思路：
+                //先把 buffer 转成 string text
+                //如果 nicknames 里还没有 client_fd：
+                //    nicknames[client_fd] = text
+                //    拼接 joined 消息
+                //    广播给其他客户端
+                //    否则：
+                //    拼接 nickname : text
+                //    广播给其他客户端
                 int bytes_received = recv(client_fd, buffer.data(), buffer.size() - 1, 0);
 
                 if (bytes_received > 0) {
                     buffer[bytes_received] = '\0';
-                    cout << "message: " << buffer.data() << endl;
+                    string text = buffer.data();
 
+                    string broadcast_msg;
 
+                    if (nicknames.find(client_fd) == nicknames.end()) {
+                        nicknames[client_fd] = text;
+                        broadcast_msg = text + " joined the chat";
+                        cout << broadcast_msg << endl;
+                    }
+                    else {
+                        broadcast_msg = nicknames[client_fd] + ": " + text;
+                        cout << broadcast_msg << endl;
+                    }
                     //某个客户端 client_fd 发来了一条消息
                     //    服务端 recv() 收到了这条消息
                     //    现在要把这条消息转发给其他在线客户端
@@ -139,16 +172,26 @@ int main() {
                     //    send(other_fd, buffer.data(), bytes_received, 0)
                     for (int other_fd : clients) {
                         if (other_fd != client_fd) {
-                            send(other_fd, buffer.data(), bytes_received, 0);
+                            send(other_fd, broadcast_msg.c_str(), broadcast_msg.size(), 0);
                         }
                     }
 
                     ++it;
-                
                 }
+                // 客户端断开时清理昵称
                 else if (bytes_received == 0) {
                     // recv() 返回 0 表示客户端正常断开连接。
-                    cout << "client disconnected" << endl;
+                    if (nicknames.find(client_fd) != nicknames.end()) {
+                        string leave_msg = nicknames[client_fd] + " left the chat";
+                        cout << leave_msg << endl;
+                        nicknames.erase(client_fd);
+
+                        for (int other_fd : clients) {
+                            if (other_fd != client_fd) {
+                                send(other_fd, leave_msg.c_str(), leave_msg.size(), 0);
+                            }
+                        }
+                    }
 
                     close(client_fd);
                     it = clients.erase(it);
@@ -158,6 +201,18 @@ int main() {
                 else {
                     // recv() 返回负数表示接收失败。
                     cout << "receive message failed" << endl;
+
+                    if (nicknames.find(client_fd) != nicknames.end()) {
+                        string leave_msg = nicknames[client_fd] + " left the chat";
+                        cout << leave_msg << endl;
+                        nicknames.erase(client_fd);
+
+                        for (int other_fd : clients) {
+                            if (other_fd != client_fd) {
+                                send(other_fd, leave_msg.c_str(), leave_msg.size(), 0);
+                            }
+                        }
+                    }
 
                     close(client_fd);
                     it = clients.erase(it);

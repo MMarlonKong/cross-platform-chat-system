@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #include <cstring>
+#include <map>
 using namespace std;
 int main()
 {
@@ -47,10 +48,34 @@ int main()
 
     cout << "connected to server" << endl;
 
+    // 连接成功后，用户输入名称（不能为空）
+    string nickname;
+
+    while (true) {
+        cout << "请输入昵称: ";
+        getline(cin, nickname);
+
+        if (!nickname.empty()) {
+            break;
+        }
+
+        cout << "昵称不能为空" << endl;
+    }
+
+    //把昵称发送给服务端
+    int bytes_sent = send(client_fd, nickname.c_str(), nickname.size(), 0);
+
+    if (bytes_sent == -1) {
+        cout << "send nickname failed" << endl;
+        close(client_fd);
+        return 1;
+    }
     
     //<5>: send 发送消息
     string message;
     vector<char> buffer(1024);
+
+    map<int, string> nicknames;
 
     while (true) {
         fd_set read_fds;
