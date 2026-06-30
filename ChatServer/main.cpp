@@ -8,103 +8,13 @@
 #include <map>
 #include <string>
 #include <cstdint>
+#include "../Common/Protocol.h"
 
 using namespace std;
 
 // recvAll() 用来解决 TCP 半包问题。
 // recv() 不保证一次就能读满指定长度，所以这里循环读取，直到收满 length 字节。
-// 如果中途连接断开或接收失败，返回 false。
-bool recvAll(int fd, char* buffer, size_t length)
-{
-    size_t total_received = 0;
-
-    while (total_received < length) {
-        int bytes_received = recv(
-            fd,
-            buffer + total_received,
-            length - total_received,
-            0
-        );
-
-        if (bytes_received <= 0) {
-            return false;
-        }
-
-        total_received += bytes_received;
-    }
-
-    return true;
-}
-
-// recvMessage() 按照当前协议接收一条完整消息：
-// [4字节长度][消息正文]
-// 先读取 4 字节长度，再根据长度读取完整正文。
-bool recvMessage(int fd, string& message)
-{
-    uint32_t network_length = 0;
-
-    // 读取 4 字节消息长度。
-    if (!recvAll(fd, reinterpret_cast<char*>(&network_length), sizeof(network_length))) {
-        return false;
-    }
-
-    // 网络字节序转主机字节序。
-    uint32_t length = ntohl(network_length);
-
-    // 简单防御：拒绝空消息和过大的消息。
-    if (length == 0 || length > 4096) {
-        return false;
-    }
-
-    vector<char> buffer(length);
-
-    // 根据长度读取完整消息正文。
-    if (!recvAll(fd, buffer.data(), length)) {
-        return false;
-    }
-
-    message.assign(buffer.begin(), buffer.end());
-
-    return true;
-}
-bool sendAll(int fd, const char* data, size_t length) {
-    size_t total_sent = 0;
-
-    while (total_sent < length) {
-        int bytes_sent = send(
-            fd,
-            data + total_sent,
-            length - total_sent,
-            0
-        );
-
-        if (bytes_sent <= 0) {
-            return false;
-        }
-
-        total_sent += bytes_sent;
-    }
-
-    return true;
-}
-
-bool sendMessage(int fd, const string& message) {
-    uint32_t length = message.size();
-    uint32_t network_length = htonl(length);
-
-    if (!sendAll(fd, reinterpret_cast<const char*>(&network_length), sizeof(network_length))) {
-        return false;
-    }
-
-    if (!sendAll(fd, message.c_str(), message.size())) {
-        return false;
-    }
-
-    return true;
-}
-
-
-
+// 
 int main() {
     const int PORT = 8888;
 
