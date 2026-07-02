@@ -7,14 +7,22 @@
 #include <vector>
 #include <cstring>
 #include <cstdint>
+#include <cstdlib>
 #include "../Common/Protocol.h"
 using namespace std;
 
-int main()
-{
+int main(int argc, char* argv[]) {
     // <1>: 准备ip地址和端口，"127.0.0.1"表示本机
-    const char* SERVER_IP = "127.0.0.1";
-    const int SERVER_PORT = 8888;
+    string server_ip = "127.0.0.1";
+    int server_port = 8888;
+
+    if (argc >= 2) {
+        server_ip = argv[1];
+    }
+
+    if (argc >= 3) {
+        server_port = atoi(argv[2]);
+    }
 
     // <2>: 创建客户端 socket
     int client_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -36,8 +44,8 @@ int main()
     //    客户端用 inet_addr(SERVER_IP)：表示要连接指定服务器 IP
 
     server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(SERVER_PORT);
-    server_addr.sin_addr.s_addr = inet_addr(SERVER_IP);
+    server_addr.sin_port = htons(server_port);
+    server_addr.sin_addr.s_addr = inet_addr(server_ip.c_str());
 
     // <4>: connect 连接服务器
     int ret = connect(client_fd, (sockaddr*)&server_addr, sizeof(server_addr));
@@ -48,7 +56,7 @@ int main()
         return 1;
     }
 
-    cout << "connected to server" << endl;
+    cout << "connected to server " << server_ip << ":" << server_port << endl;
 
     // 连接成功后，用户输入名称（不能为空）
     string nickname;

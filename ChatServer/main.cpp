@@ -8,6 +8,7 @@
 #include <map>
 #include <string>
 #include <cstdint>
+#include <cstdlib>
 #include "../Common/Protocol.h"
 
 using namespace std;
@@ -15,8 +16,12 @@ using namespace std;
 // recvAll() 用来解决 TCP 半包问题。
 // recv() 不保证一次就能读满指定长度，所以这里循环读取，直到收满 length 字节。
 // 
-int main() {
-    const int PORT = 8888;
+int main(int argc, char* argv[]) {
+    int PORT = 8888;
+
+    if (argc >= 2) {
+        PORT = atoi(argv[1]);
+    }   
 
     // 创建 TCP 监听 socket。
     // AF_INET 使用 IPv4。
@@ -197,19 +202,23 @@ int main() {
                 else {
                     // recvMessage() 返回 false：
                     // 可能是客户端断开，也可能是消息长度非法或接收失败。
-                    if (nicknames.find(client_fd) != nicknames.end()) {
-                        string leave_msg = nicknames[client_fd] + " left the chat";
+                    auto name_it = nicknames.find(client_fd);
+
+                    if (name_it != nicknames.end()) {
+                        string leave_msg = name_it->second + " left the chat";
+
                         cout << leave_msg << endl;
-                        nicknames.erase(client_fd);
 
                         for (int other_fd : clients) {
                             if (other_fd != client_fd) {
                                 sendMessage(other_fd, leave_msg);
                             }
                         }
+
+                        nicknames.erase(name_it);
                     }
                     else {
-                        cout << "client disconnected before login" << endl;
+                        cout << "unauthenticated client disconnected" << endl;
                     }
 
                     close(client_fd);
